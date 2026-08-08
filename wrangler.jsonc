@@ -16,7 +16,7 @@
 		]
 	},
 	"exports": {
-		"WebSocketHibernationServer": {"type": "durable-object", "storage": "sqlite" }
+		"IHCGameServer": {"type": "durable-object", "storage": "sqlite" }
 	}
 	/**
 	 * Smart Placement
