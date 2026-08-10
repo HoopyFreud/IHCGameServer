@@ -13,6 +13,8 @@ interface IHCSessionData {
 
 const delay = 24 * 60 * 60 * 1000;
 
+const corsHeader = {"Access-Control-Allow-Origin": "*"}
+
 // Worker
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -23,28 +25,37 @@ export default {
 /ihc-gameserver: inhuman conditions game server workers`,
 			{
 				status: 200,
-				headers: {'Content-Type': 'text/plain'},
-			}
-		);
+				headers: {'Content-Type': 'text/plain',...corsHeader},
+		});
 	}
 	if (request.method !== 'GET') {
 		return new Response('Worker expected GET method', {
 			status: 400,
+			headers: corsHeader
 		});
 	}
 
 	const upgradeHeader = request.headers.get('Upgrade');
 	if (!upgradeHeader || upgradeHeader !== 'websocket') {
-		return new Response('Worker expected Upgrade: websocket', {status: 426});
+		return new Response('Worker expected Upgrade: websocket', {
+			status: 426,
+			headers: corsHeader
+		});
 	}
 
 	const sessionID = url.searchParams.get("sessionID");
 	const joinType = url.searchParams.get("joinType");
 	if (sessionID === null || /[^A-Z0-9]/.test(sessionID)) {
-		return new Response('Invalid session ID', {status: 400});
+		return new Response('Invalid session ID', {
+			status: 400,
+			headers: corsHeader
+		});
 	}
 	if (joinType === null || (joinType !== "existing" && joinType !== "new")) {
-		return new Response('Bad session join type', {status: 400});
+		return new Response('Bad session join type', {
+			status: 400,
+			headers: corsHeader
+		});
 	}
 	  
 	let stub = env.IHC_GAME_SERVER.getByName(sessionID);
@@ -95,15 +106,24 @@ export class IHCGameServer extends DurableObject<Env> {
 	async validateJoin(joinType: string): Promise<Response> {
 		if (this.sessions.size >= 2) {
 			await this.ctx.storage.deleteAll()
-			return new Response('Session full, use another sessionID', {status: 409});
+			return new Response('Session full, use another sessionID', {
+				status: 409,
+				headers: corsHeader
+			});
 		}
 		else if (joinType === "existing" && this.sessions.size < 1) {
 			await this.ctx.storage.deleteAll()
-			return new Response('Session empty, cannot join', {status: 409});
+			return new Response('Session empty, cannot join', {
+				status: 409,
+				headers: corsHeader
+			});
 		}
 		else if (joinType === "new" && this.sessions.size > 0) {
 			await this.ctx.storage.deleteAll()
-			return new Response('Session already exists, cannot create a new session with this ID', {status: 409});
+			return new Response('Session already exists, cannot create a new session with this ID', {
+				status: 409,
+				headers: corsHeader
+			});
 		}
 		else {
 			// Creates two ends of a WebSocket connection.
@@ -133,7 +153,8 @@ export class IHCGameServer extends DurableObject<Env> {
 
 			return new Response(null, {
 				status: 101,
-				webSocket: client,
+				webSocket: client,,
+				headers: corsHeader
 			});
 		}
 	}
