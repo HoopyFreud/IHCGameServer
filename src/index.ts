@@ -140,6 +140,7 @@ export class IHCGameServer extends DurableObject<Env> {
 
 			// Generate a random UUID for the session.
 			const id = crypto.randomUUID();
+			console.log("ok up to serialize")
 
 			// Attach the session ID to the WebSocket connection and serialize it.
 			// This is necessary to restore the state of the connection when the Durable Object wakes up.
