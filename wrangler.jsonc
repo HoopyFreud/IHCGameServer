@@ -4,7 +4,7 @@
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "inhuman-conditions-session-worker",
+	"name": "ihc-game-server",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-08-08",
 	"durable_objects": {
