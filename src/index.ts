@@ -32,7 +32,7 @@ export default {
 	  }
 	  
 	  let stub = env.IHC_GAME_SERVER.getByName(sessionCode);
-	  return stub.fetch(request);
+	  return stub.validateJoin(request);
 	}
 
     return new Response(
@@ -88,7 +88,7 @@ export class IHCGameServer extends DurableObject<Env> {
 		});
 	}
 
-	async fetch(request: Request): Promise<Response> {
+	async validateJoin(request: Request): Promise<Response> {
 		if (this.sessions.size >= 2) {
 			await this.ctx.storage.deleteAll()
 			return new Response('Session full, use another sessionID', {
