@@ -89,17 +89,17 @@ export class IHCGameServer extends DurableObject<Env> {
 	}
 
 	async validateJoin(joinType: string): Promise<Response> {
-		if (joinType === "existing" && this.sessions.size < 1) {
+		if (this.sessions.size >= 2) {
+			await this.ctx.storage.deleteAll()
+			return new Response('Session full, use another sessionID', {status: 409});
+		}
+		else if (joinType === "existing" && this.sessions.size < 1) {
 			await this.ctx.storage.deleteAll()
 			return new Response('Session empty, cannot join', {status: 409});
 		}
 		else if (joinType === "new" && this.sessions.size > 0) {
 			await this.ctx.storage.deleteAll()
 			return new Response('Session already exists, cannot create a new session with this ID', {status: 409});
-		}
-		else if (this.sessions.size >= 2) {
-			await this.ctx.storage.deleteAll()
-			return new Response('Session full, use another sessionID', {status: 409});
 		}
 		else {
 			// Creates two ends of a WebSocket connection.
