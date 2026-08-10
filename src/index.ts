@@ -23,7 +23,9 @@ export default {
         });
       }
 
-	  const sessionCode = request.headers.get("Session-ID");
+	  const urlParams = new URL(request.url).searchParams
+	  const sessionCode = urlParams.get("sessionID");
+	  const joinType = urlParams.get("joinType");
 
 	  if (sessionCode === null) {
 		return new Response('Worker expected session code', {
@@ -31,14 +33,14 @@ export default {
         });
 	  }
 
-	  if (request.headers.get("Join-Type") === null) {
+	  if (joinType === null) {
 		return new Response('Worker expected join type', {
           status: 400,
         });
 	  }
 	  
 	  let stub = env.IHC_GAME_SERVER.getByName(sessionCode);
-	  return stub.validateJoin(request);
+	  return await stub.validateJoin(joinType);
 	}
 
     return new Response(
@@ -94,20 +96,20 @@ export class IHCGameServer extends DurableObject<Env> {
 		});
 	}
 
-	async validateJoin(request: Request): Promise<Response> {
+	async validateJoin(joinType: string): Promise<Response> {
 		if (this.sessions.size >= 2) {
 			await this.ctx.storage.deleteAll()
 			return new Response('Session full, use another sessionID', {
 				status: 409
 			});
 		}
-		else if (request.headers.get("Join-Type") == "existing" && this.sessions.size < 1) {
+		else if (joinType == "existing" && this.sessions.size < 1) {
 			await this.ctx.storage.deleteAll()
 			return new Response('Session empty, cannot join', {
 				status: 409
 			});
 		}
-		else if (request.headers.get("Join-Type") == "new" && this.sessions.size > 0) {
+		else if (joinType == "new" && this.sessions.size > 0) {
 			await this.ctx.storage.deleteAll()
 			return new Response('Session already exists, cannot create a new session with this ID', {
 				status: 409
