@@ -30,6 +30,12 @@ export default {
           status: 400,
         });
 	  }
+
+	  if (request.headers.get("Join-Type") === null) {
+		return new Response('Worker expected join type', {
+          status: 400,
+        });
+	  }
 	  
 	  let stub = env.IHC_GAME_SERVER.getByName(sessionCode);
 	  return stub.validateJoin(request);
