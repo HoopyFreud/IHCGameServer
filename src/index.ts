@@ -59,7 +59,7 @@ export default {
 	}
 	  
 	let stub = env.IHC_GAME_SERVER.getByName(sessionID);
-	return await stub.validateJoin(joinType);
+	return await stub.fetch(request);
 	}
 };
 
@@ -103,7 +103,9 @@ export class IHCGameServer extends DurableObject<Env> {
 		});
 	}
 
-	async validateJoin(joinType: string): Promise<Response> {
+	async fetch(request: Request): Promise<Response> {
+		const joinType = new URL(request.url).searchParams.get("joinType");
+
 		if (this.sessions.size >= 2) {
 			return new Response('Session full, use another sessionID', {
 				status: 409,
