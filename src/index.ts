@@ -9,7 +9,7 @@ interface IHCSessionData {
 	permanentPenalty: boolean;
 	continuousCatalyzation: boolean;
 	sealedFile: boolean;
-	endTime: Date
+	endTime: Date | null
 }
 
 interface IHCMessageData {
@@ -17,7 +17,7 @@ interface IHCMessageData {
 	stateUpdate: Partial<IHCSessionData> | null
 }
 
-const delay = 24 * 60 * 60 * 1000;
+const deleteDelay = 24 * 60 * 60 * 1000;
 
 const corsHeader = {"Access-Control-Allow-Origin": "*"}
 
@@ -99,13 +99,14 @@ export class IHCGameServer extends DurableObject<Env> {
 				backgroundCardID: null,
 				permanentPenalty: false,
 				continuousCatalyzation: false,
-				sealedFile: false
+				sealedFile: false,
+				endTime: null
 			}
 
 			// As part of constructing the Durable Object,
 			// we wake up any hibernating WebSockets and
 			// place them back in the `sessions` map.
-			await this.ctx.storage.setAlarm(Date.now() + delay);
+			await this.ctx.storage.setAlarm(Date.now() + deleteDelay);
 		});
 	}
 
