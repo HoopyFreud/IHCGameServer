@@ -33,9 +33,13 @@ export default {
 		});
 	}
 
+	const upgradeHeader = request.headers.get('Upgrade');
+	if (!upgradeHeader || upgradeHeader !== 'websocket') {
+		return new Response('Worker expected Upgrade: websocket', {status: 426});
+	}
+
 	const sessionID = url.searchParams.get("sessionID");
 	const joinType = url.searchParams.get("joinType");
-
 	if (sessionID === null || /[^A-Z0-9]/.test(sessionID)) {
 		return new Response('Invalid session ID', {status: 400});
 	}
