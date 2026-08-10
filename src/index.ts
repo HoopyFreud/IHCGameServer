@@ -16,44 +16,41 @@ const delay = 24 * 60 * 60 * 1000;
 // Worker
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    if (request.url.endsWith('/ihc-gameserver')) {
-      if (request.method !== 'GET') {
-        return new Response('Worker expected GET method', {
-          status: 400,
-        });
-      }
-
-	  const urlParams = new URL(request.url).searchParams
-	  const sessionCode = urlParams.get("sessionID");
-	  const joinType = urlParams.get("joinType");
-
-	  if (sessionCode === null) {
-		return new Response('Worker expected session code', {
-          status: 400,
-        });
-	  }
-
-	  if (joinType === null) {
-		return new Response('Worker expected join type', {
-          status: 400,
-        });
-	  }
-	  
-	  let stub = env.IHC_GAME_SERVER.getByName(sessionCode);
-	  return await stub.validateJoin(joinType);
+	const url = new URL(request.url)
+    if (url.pathname != '/ihc-gameserver') {
+		return new Response(
+			`Supported endpoints:
+/ihc-gameserver: inhuman conditions game server workers`,
+			{
+				status: 200,
+				headers: {'Content-Type': 'text/plain'},
+			}
+		);
+	}
+	if (request.method !== 'GET') {
+		return new Response('Worker expected GET method', {
+			status: 400,
+		});
 	}
 
-    return new Response(
-      `Supported endpoints:
-/ihc-gameserver: inhuman conditions game server workers`,
-      {
-        status: 200,
-        headers: {
-          'Content-Type': 'text/plain',
-        },
-      }
-    );
-  },
+	const sessionCode = url.searchParams.get("sessionID");
+	const joinType = url.searchParams.get("joinType");
+
+	if (sessionCode === null) {
+		return new Response('Worker expected session code', {
+			status: 400,
+		});
+	}
+
+	if (joinType === null) {
+		return new Response('Worker expected join type', {
+			status: 400,
+		});
+	}
+	  
+	let stub = env.IHC_GAME_SERVER.getByName(sessionCode);
+	return await stub.validateJoin(joinType);
+	}
 };
 
 // Durable Object
