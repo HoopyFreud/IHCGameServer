@@ -33,22 +33,17 @@ export default {
 		});
 	}
 
-	const sessionCode = url.searchParams.get("sessionID");
+	const sessionID = url.searchParams.get("sessionID");
 	const joinType = url.searchParams.get("joinType");
 
-	if (sessionCode === null) {
-		return new Response('Worker expected session code', {
-			status: 400,
-		});
+	if (sessionID === null || /[^A-Z0-9]/.test(sessionID)) {
+		return new Response('Invalid session ID', {status: 400});
 	}
-
-	if (joinType === null) {
-		return new Response('Worker expected join type', {
-			status: 400,
-		});
+	if (joinType === null || (joinType !== "existing" && joinType !== "new")) {
+		return new Response('Bad session join type', {status: 400});
 	}
 	  
-	let stub = env.IHC_GAME_SERVER.getByName(sessionCode);
+	let stub = env.IHC_GAME_SERVER.getByName(sessionID);
 	return await stub.validateJoin(joinType);
 	}
 };
@@ -94,23 +89,17 @@ export class IHCGameServer extends DurableObject<Env> {
 	}
 
 	async validateJoin(joinType: string): Promise<Response> {
-		if (this.sessions.size >= 2) {
+		if (joinType === "existing" && this.sessions.size < 1) {
 			await this.ctx.storage.deleteAll()
-			return new Response('Session full, use another sessionID', {
-				status: 409
-			});
+			return new Response('Session empty, cannot join', {status: 409});
 		}
-		else if (joinType == "existing" && this.sessions.size < 1) {
+		else if (joinType === "new" && this.sessions.size > 0) {
 			await this.ctx.storage.deleteAll()
-			return new Response('Session empty, cannot join', {
-				status: 409
-			});
+			return new Response('Session already exists, cannot create a new session with this ID', {status: 409});
 		}
-		else if (joinType == "new" && this.sessions.size > 0) {
+		else if (this.sessions.size >= 2) {
 			await this.ctx.storage.deleteAll()
-			return new Response('Session already exists, cannot create a new session with this ID', {
-				status: 409
-			});
+			return new Response('Session full, use another sessionID', {status: 409});
 		}
 		else {
 			// Creates two ends of a WebSocket connection.
