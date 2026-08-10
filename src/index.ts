@@ -148,6 +148,8 @@ export class IHCGameServer extends DurableObject<Env> {
 
 			// Add the WebSocket connection to the map of active sessions.
 			this.sessions.set(server, { id });
+			
+			console.log("send response")
 
 			return new Response(id, {
 				status: 101,
