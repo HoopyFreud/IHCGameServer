@@ -151,7 +151,7 @@ export class IHCGameServer extends DurableObject<Env> {
 			
 			console.log("send response")
 
-			return new Response(id, {
+			return new Response(null, {
 				status: 101,
 				webSocket: client,
 				headers: corsHeader
