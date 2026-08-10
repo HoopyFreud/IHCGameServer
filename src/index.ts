@@ -74,6 +74,16 @@ export class IHCGameServer extends DurableObject<Env> {
 		super(ctx, env);
 		this.sessions = new Map();
 
+		// Get all WebSocket connections from the DO
+		this.ctx.getWebSockets().forEach((ws) => {
+			let attachment = ws.deserializeAttachment();
+			if (attachment) {
+				// If we previously attached state to our WebSocket,
+				// let's add it to `sessions` map to restore the state of the connection.
+				this.sessions.set(ws, { ...attachment });
+			}
+		});
+
 		this.ctx.blockConcurrencyWhile(async () => {
 			this.sessionData = (await ctx.storage.get("sessionData")) || {
 				gameState: "init",
@@ -89,37 +99,24 @@ export class IHCGameServer extends DurableObject<Env> {
 			// As part of constructing the Durable Object,
 			// we wake up any hibernating WebSockets and
 			// place them back in the `sessions` map.
-
-			// Get all WebSocket connections from the DO
-			this.ctx.getWebSockets().forEach((ws) => {
-				let attachment = ws.deserializeAttachment();
-				if (attachment) {
-					// If we previously attached state to our WebSocket,
-					// let's add it to `sessions` map to restore the state of the connection.
-					this.sessions.set(ws, { ...attachment });
-				}
-			});
 			await this.ctx.storage.setAlarm(Date.now() + delay);
 		});
 	}
 
 	async validateJoin(joinType: string): Promise<Response> {
 		if (this.sessions.size >= 2) {
-			await this.ctx.storage.deleteAll()
 			return new Response('Session full, use another sessionID', {
 				status: 409,
 				headers: corsHeader
 			});
 		}
 		else if (joinType === "existing" && this.sessions.size < 1) {
-			await this.ctx.storage.deleteAll()
 			return new Response('Session empty, cannot join', {
 				status: 409,
 				headers: corsHeader
 			});
 		}
 		else if (joinType === "new" && this.sessions.size > 0) {
-			await this.ctx.storage.deleteAll()
 			return new Response('Session already exists, cannot create a new session with this ID', {
 				status: 409,
 				headers: corsHeader
@@ -151,7 +148,7 @@ export class IHCGameServer extends DurableObject<Env> {
 			// Add the WebSocket connection to the map of active sessions.
 			this.sessions.set(server, { id });
 
-			return new Response(null, {
+			return new Response(id, {
 				status: 101,
 				webSocket: client,
 				headers: corsHeader
