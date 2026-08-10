@@ -12,10 +12,25 @@ interface IHCSessionData {
 	endTime: Date | null
 }
 
-interface IHCMessageData {
-	type: string;
-	stateUpdate: Partial<IHCSessionData> | null
+interface IHCIntroductionData {
+	type: "intro";
+	data: {
+		sessionID: string;
+		joinType: string;
+	}
 }
+
+interface IHCQuery {
+	type: "query";
+	data: null
+}
+
+interface IHCSessionUpdate {
+	type: "update";
+	data: Partial<IHCSessionData>
+}
+
+type IHCMessageData = (IHCIntroductionData | IHCQuery | IHCSessionUpdate)
 
 const deleteDelay = 24 * 60 * 60 * 1000;
 
@@ -50,15 +65,8 @@ export default {
 	}
 
 	const sessionID = url.searchParams.get("sessionID");
-	const joinType = url.searchParams.get("joinType");
 	if (sessionID === null || /[^A-Z0-9]/.test(sessionID)) {
 		return new Response('Invalid session ID', {
-			status: 400,
-			headers: corsHeader
-		});
-	}
-	if (joinType === null || (joinType !== "existing" && joinType !== "new")) {
-		return new Response('Bad session join type', {
 			status: 400,
 			headers: corsHeader
 		});
@@ -75,10 +83,12 @@ export class IHCGameServer extends DurableObject<Env> {
 	// When the DO hibernates, gets reconstructed in the constructor
 	sessions: Map<WebSocket, { [key: string]: string }>;
 	sessionData!: IHCSessionData;
+	pendingConnection: [WebSocket | null, string | null];
 
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
 		this.sessions = new Map();
+		this.pendingConnection = [null, null]
 
 		// Get all WebSocket connections from the DO
 		this.ctx.getWebSockets().forEach((ws) => {
@@ -110,69 +120,66 @@ export class IHCGameServer extends DurableObject<Env> {
 		});
 	}
 
-	async fetch(request: Request): Promise<Response> {
-		const joinType = new URL(request.url).searchParams.get("joinType");
+	async fetch(request: Request): Promise<Response> {		
+		// Creates two ends of a WebSocket connection.
+		const webSocketPair = new WebSocketPair();
+		const [client, server] = Object.values(webSocketPair);
+		
+		// Calling `acceptWebSocket()` informs the runtime that this WebSocket is to begin terminating
+		// request within the Durable Object. It has the effect of "accepting" the connection,
+		// and allowing the WebSocket to send and receive messages.
+		// Unlike `ws.accept()`, `this.ctx.acceptWebSocket(ws)` informs the Workers Runtime that the WebSocket
+		// is "hibernatable", so the runtime does not need to pin this Durable Object to memory while
+		// the connection is open. During periods of inactivity, the Durable Object can be evicted
+		// from memory, but the WebSocket connection will remain open. If at some later point the
+		// WebSocket receives a message, the runtime will recreate the Durable Object
+		// (run the `constructor`) and deliver the message to the appropriate handler.
+		this.ctx.acceptWebSocket(server);
 
-		if (this.sessions.size >= 2) {
-			return new Response('Session full, use another sessionID', {
-				status: 409,
-				headers: corsHeader
-			});
-		}
-		else if (joinType === "existing" && this.sessions.size < 1) {
-			return new Response('Session empty, cannot join', {
-				status: 409,
-				headers: corsHeader
-			});
-		}
-		else if (joinType === "new" && this.sessions.size > 0) {
-			return new Response('Session already exists, cannot create a new session with this ID', {
-				status: 409,
-				headers: corsHeader
-			});
-		}
-		else {
-			// Creates two ends of a WebSocket connection.
-			const webSocketPair = new WebSocketPair();
-			const [client, server] = Object.values(webSocketPair);
+		// Generate a random UUID for the session.
+		const id = crypto.randomUUID();
 
-			// Calling `acceptWebSocket()` informs the runtime that this WebSocket is to begin terminating
-			// request within the Durable Object. It has the effect of "accepting" the connection,
-			// and allowing the WebSocket to send and receive messages.
-			// Unlike `ws.accept()`, `this.ctx.acceptWebSocket(ws)` informs the Workers Runtime that the WebSocket
-			// is "hibernatable", so the runtime does not need to pin this Durable Object to memory while
-			// the connection is open. During periods of inactivity, the Durable Object can be evicted
-			// from memory, but the WebSocket connection will remain open. If at some later point the
-			// WebSocket receives a message, the runtime will recreate the Durable Object
-			// (run the `constructor`) and deliver the message to the appropriate handler.
-			this.ctx.acceptWebSocket(server);
+		// Attach the session ID to the WebSocket connection and serialize it.
+		// This is necessary to restore the state of the connection when the Durable Object wakes up.
+		server.serializeAttachment({ id });
 
-			// Generate a random UUID for the session.
-			const id = crypto.randomUUID();
+		// Add the WebSocket connection to the map of active sessions.
+		this.pendingConnection = [server, id];
+		this.sessions.set(server,{id})
 
-			// Attach the session ID to the WebSocket connection and serialize it.
-			// This is necessary to restore the state of the connection when the Durable Object wakes up.
-			server.serializeAttachment({ id });
-
-			// Add the WebSocket connection to the map of active sessions.
-			this.sessions.set(server, { id });
-
-			return new Response(null, {
-				status: 101,
-				webSocket: client,
-				headers: corsHeader
-			});
-		}
+		return new Response(null, {
+			status: 101,
+			webSocket: client,
+			headers: corsHeader
+		});
 	}
 
 	async webSocketMessage(ws: WebSocket, message: string) {
 		const incomingMessage: IHCMessageData = JSON.parse(message)
 
+		if (incomingMessage.type === "intro") {
+			if (this.sessions.size >= 2) {
+				ws.close(4001,"session is full")
+			}
+			else if (incomingMessage.data.joinType === "existing" && this.sessions.size < 1) {
+				ws.close(4002,'Session empty, cannot join')
+			}
+			else if (incomingMessage.data.joinType === "new" && this.sessions.size > 0) {
+				ws.close(4003,'Session already exists, cannot create a new session with this ID')
+			}
+			else if (this.pendingConnection[0] === null || this.pendingConnection[1] === null) {
+				ws.close(4004,'No pending session socket')
+			}
+			else {
+				const id: string = this.pendingConnection[1]
+				this.sessions.set(this.pendingConnection[0], {id});
+			} 
+		}
 		if (incomingMessage.type === "query") {
 			ws.send(JSON.stringify(this.sessionData))
 		}
-		else if (incomingMessage.type === "update" && incomingMessage.stateUpdate !== null) {
-			this.sessionData = { ...this.sessionData, ...incomingMessage.stateUpdate };
+		else if (incomingMessage.type === "update") {
+			this.sessionData = { ...this.sessionData, ...incomingMessage.data };
 			// Send a message to all WebSocket connections with the new sessionData.
 			this.sessions.forEach((_attachment, connectedWs) => {
 				connectedWs.send(JSON.stringify(this.sessionData));
