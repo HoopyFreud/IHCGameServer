@@ -9,6 +9,12 @@ interface IHCSessionData {
 	permanentPenalty: boolean;
 	continuousCatalyzation: boolean;
 	sealedFile: boolean;
+	endTime: Date
+}
+
+interface IHCMessageData {
+	type: string;
+	stateUpdate: Partial<IHCSessionData> | null
 }
 
 const delay = 24 * 60 * 60 * 1000;
@@ -17,7 +23,7 @@ const corsHeader = {"Access-Control-Allow-Origin": "*"}
 
 // Worker
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
 	const url = new URL(request.url)
     if (url.pathname != '/ihc-gameserver') {
 		return new Response(
@@ -159,18 +165,21 @@ export class IHCGameServer extends DurableObject<Env> {
 	}
 
 	async webSocketMessage(ws: WebSocket, message: string) {
-		const incomingData: Partial<IHCSessionData> = JSON.parse(message)
+		const incomingMessage: IHCMessageData = JSON.parse(message)
 
-		// currently both clients have full control over the shared state, that might be a little bit bad but whatever
-		this.sessionData = { ...this.sessionData, ...incomingData };
-
-		// Send a message to all WebSocket connections with the new sessionData.
-		this.sessions.forEach((attachment, connectedWs) => {
-			connectedWs.send(JSON.stringify(this.sessionData));
-		});
+		if (incomingMessage.type === "query") {
+			ws.send(JSON.stringify(this.sessionData))
+		}
+		else if (incomingMessage.type === "update" && incomingMessage.stateUpdate !== null) {
+			this.sessionData = { ...this.sessionData, ...incomingMessage.stateUpdate };
+			// Send a message to all WebSocket connections with the new sessionData.
+			this.sessions.forEach((_attachment, connectedWs) => {
+				connectedWs.send(JSON.stringify(this.sessionData));
+			});
+		}
 	}
 
-	async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
+	async webSocketClose(ws: WebSocket, _code: number, _reason: string, _wasClean: boolean) {
 	// With web_socket_auto_reply_to_close (compat date >= 2026-04-07), the runtime
 	// auto-replies to Close frames. Calling close() is safe but no longer required.
 		this.sessions.delete(ws);
