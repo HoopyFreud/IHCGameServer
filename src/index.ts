@@ -181,7 +181,7 @@ export class IHCGameServer extends DurableObject<Env> {
 				}
 				else {
 					this.sessionData.validatedSessions += 1
-					ws.send("success")
+					ws.send(JSON.stringify({type: "string", data: "success"}))
 					updateSession = true
 				} 
 			}
@@ -198,10 +198,7 @@ export class IHCGameServer extends DurableObject<Env> {
 			if (updateSession) {
 				// Send a message to all WebSocket connections with the new sessionData.
 				this.sessions.forEach((_attachment, connectedWs) => {
-					connectedWs.send(JSON.stringify({
-						"type": "session",
-						"data": this.sessionData
-					}));
+					connectedWs.send(JSON.stringify({type: "session",data: this.sessionData}));
 				});
 				await this.ctx.storage.put("sessionData",this.sessionData)
 			}
