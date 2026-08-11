@@ -2,6 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 
 interface IHCSessionData {
 	gameState: string;
+	validatedSessions: number;
 	moduleID: number | null;
 	robotCardID: number | null;
 	penaltyCardID: number | null;
@@ -31,6 +32,18 @@ interface IHCSessionUpdate {
 }
 
 type IHCMessageData = (IHCIntroductionData | IHCQuery | IHCSessionUpdate)
+
+interface IHCSessionResponse {
+	type: "session";
+	data: IHCSessionData
+}
+
+interface IHCStringResponse {
+	type: "string";
+	data: string
+}
+
+type IHCResponse = (IHCSessionResponse | IHCStringResponse)
 
 const deleteDelay = 24 * 60 * 60 * 1000;
 
@@ -83,12 +96,10 @@ export class IHCGameServer extends DurableObject<Env> {
 	// When the DO hibernates, gets reconstructed in the constructor
 	sessions: Map<WebSocket, { [key: string]: string }>;
 	sessionData!: IHCSessionData;
-	pendingConnection: [WebSocket | null, string | null];
 
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
 		this.sessions = new Map();
-		this.pendingConnection = [null, null]
 
 		// Get all WebSocket connections from the DO
 		this.ctx.getWebSockets().forEach((ws) => {
@@ -103,6 +114,7 @@ export class IHCGameServer extends DurableObject<Env> {
 		this.ctx.blockConcurrencyWhile(async () => {
 			this.sessionData = (await ctx.storage.get("sessionData")) || {
 				gameState: "init",
+				validatedSessions: 0,
 				moduleID: null,
 				robotCardID: null,
 				penaltyCardID: null,
@@ -124,7 +136,7 @@ export class IHCGameServer extends DurableObject<Env> {
 		// Creates two ends of a WebSocket connection.
 		const webSocketPair = new WebSocketPair();
 		const [client, server] = Object.values(webSocketPair);
-		
+
 		// Calling `acceptWebSocket()` informs the runtime that this WebSocket is to begin terminating
 		// request within the Durable Object. It has the effect of "accepting" the connection,
 		// and allowing the WebSocket to send and receive messages.
@@ -144,8 +156,7 @@ export class IHCGameServer extends DurableObject<Env> {
 		server.serializeAttachment({ id });
 
 		// Add the WebSocket connection to the map of active sessions.
-		this.pendingConnection = [server, id];
-		this.sessions.set(server,{id})
+		this.sessions.set(server, { id });
 
 		return new Response(null, {
 			status: 101,
@@ -156,35 +167,44 @@ export class IHCGameServer extends DurableObject<Env> {
 
 	async webSocketMessage(ws: WebSocket, message: string) {
 		const incomingMessage: IHCMessageData = JSON.parse(message)
-
-		if (incomingMessage.type === "intro") {
-			if (this.sessions.size >= 2) {
-				ws.close(4001,"session is full")
+		let updateSession = false
+		this.ctx.blockConcurrencyWhile(async () => {
+			if (incomingMessage.type === "intro") {
+				if (this.sessionData.validatedSessions >= 2) {
+					ws.close(4001,"session is full")
+				}
+				else if (incomingMessage.data.joinType === "existing" && this.sessionData.validatedSessions < 1) {
+					ws.close(4002,'Session empty, cannot join')
+				}
+				else if (incomingMessage.data.joinType === "new" && this.sessionData.validatedSessions > 0) {
+					ws.close(4003,'Session already exists, cannot create a new session with this ID')
+				}
+				else {
+					this.sessionData.validatedSessions += 1
+					updateSession = true
+				} 
 			}
-			else if (incomingMessage.data.joinType === "existing" && this.sessions.size < 1) {
-				ws.close(4002,'Session empty, cannot join')
+			else if (incomingMessage.type === "query") {
+				ws.send(JSON.stringify({
+					"type": "session",
+					"data": this.sessionData
+				}))
 			}
-			else if (incomingMessage.data.joinType === "new" && this.sessions.size > 0) {
-				ws.close(4003,'Session already exists, cannot create a new session with this ID')
+			else if (incomingMessage.type === "update") {
+				this.sessionData = { ...this.sessionData, ...incomingMessage.data };
+				updateSession = true
 			}
-			else if (this.pendingConnection[0] === null || this.pendingConnection[1] === null) {
-				ws.close(4004,'No pending session socket')
+			if (updateSession) {
+				// Send a message to all WebSocket connections with the new sessionData.
+				this.sessions.forEach((_attachment, connectedWs) => {
+					connectedWs.send(JSON.stringify({
+						"type": "session",
+						"data": this.sessionData
+					}));
+				});
+				await this.ctx.storage.put("sessionData",this.sessionData)
 			}
-			else {
-				const id: string = this.pendingConnection[1]
-				this.sessions.set(this.pendingConnection[0], {id});
-			} 
-		}
-		if (incomingMessage.type === "query") {
-			ws.send(JSON.stringify(this.sessionData))
-		}
-		else if (incomingMessage.type === "update") {
-			this.sessionData = { ...this.sessionData, ...incomingMessage.data };
-			// Send a message to all WebSocket connections with the new sessionData.
-			this.sessions.forEach((_attachment, connectedWs) => {
-				connectedWs.send(JSON.stringify(this.sessionData));
-			});
-		}
+		})
 	}
 
 	async webSocketClose(ws: WebSocket, _code: number, _reason: string, _wasClean: boolean) {
