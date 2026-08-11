@@ -181,6 +181,7 @@ export class IHCGameServer extends DurableObject<Env> {
 				}
 				else {
 					this.sessionData.validatedSessions += 1
+					ws.send("success")
 					updateSession = true
 				} 
 			}
