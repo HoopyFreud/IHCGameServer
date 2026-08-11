@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 
-interface IHCSessionData {
+interface IHCStateData {
 	gameState: string;
 	validatedSessions: number;
 	moduleID: number | null;
@@ -11,6 +11,19 @@ interface IHCSessionData {
 	continuousCatalyzation: boolean;
 	sealedFile: boolean;
 	endTime: Date | null
+}
+
+type IHCRole = "detective" | "suspect"
+
+
+interface IHCWebSocketInfo {
+	validated: boolean;
+	role: IHCRole | null
+}
+
+interface IHCRoleData {
+	self: IHCRole;
+	other: IHCRole;
 }
 
 interface IHCIntroductionData {
@@ -26,24 +39,47 @@ interface IHCQuery {
 	data: null
 }
 
-interface IHCSessionUpdate {
-	type: "update";
-	data: Partial<IHCSessionData>
+interface IHCStateUpdate {
+	type: "state-update";
+	data: Partial<IHCStateData>
 }
 
-type IHCMessageData = (IHCIntroductionData | IHCQuery | IHCSessionUpdate)
+interface IHCRoleUpdate {
+	type: "role-update";
+	data: IHCRoleData
+}
 
-interface IHCSessionResponse {
-	type: "session";
-	data: IHCSessionData
+type IHCMessageData = (IHCIntroductionData | IHCQuery | IHCStateUpdate | IHCRoleUpdate)
+
+interface IHCStateResponse {
+	type: "state-response";
+	state: Partial<IHCStateData>
+	role: null
+	string: null
+}
+
+interface IHCRoleResponse {
+	type: "role-response";
+	state: null
+	role: IHCRole
+	string: null
 }
 
 interface IHCStringResponse {
-	type: "string";
-	data: string
+	type: "string-response";
+	state: null
+	role: null
+	string: null
 }
 
-type IHCResponse = (IHCSessionResponse | IHCStringResponse)
+interface IHCCombinedResponse {
+	type: "combined-response";
+	state: Partial<IHCStateData> | null
+	role: IHCRole | null
+	string: string | null
+}
+
+type IHCResponse = (IHCStateResponse | IHCRoleResponse | IHCStringResponse | IHCCombinedResponse)
 
 const deleteDelay = 24 * 60 * 60 * 1000;
 
@@ -94,24 +130,25 @@ export default {
 export class IHCGameServer extends DurableObject<Env> {
 	// Keeps track of all WebSocket connections
 	// When the DO hibernates, gets reconstructed in the constructor
-	sessions: Map<WebSocket, { [key: string]: string }>;
-	sessionData!: IHCSessionData;
+	sessions: Map<WebSocket, IHCWebSocketInfo>;
+	sessionData!: IHCStateData;
 
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
 		this.sessions = new Map();
 
-		// Get all WebSocket connections from the DO
-		this.ctx.getWebSockets().forEach((ws) => {
-			let attachment = ws.deserializeAttachment();
-			if (attachment) {
+		this.ctx.blockConcurrencyWhile(async () => {
+			// Get all WebSocket connections from the DO
+			this.ctx.getWebSockets().forEach((ws) => {
+				let attachment: IHCWebSocketInfo = ws.deserializeAttachment();
 				// If we previously attached state to our WebSocket,
 				// let's add it to `sessions` map to restore the state of the connection.
-				this.sessions.set(ws, { ...attachment });
-			}
-		});
+				this.sessions.set(ws, attachment);
+			});
 
-		this.ctx.blockConcurrencyWhile(async () => {
+			// As part of constructing the Durable Object,
+			// we wake up any hibernating WebSockets and
+			// place them back in the `sessions` map.
 			this.sessionData = (await ctx.storage.get("sessionData")) || {
 				gameState: "init",
 				validatedSessions: 0,
@@ -124,12 +161,8 @@ export class IHCGameServer extends DurableObject<Env> {
 				sealedFile: false,
 				endTime: null
 			}
-
-			// As part of constructing the Durable Object,
-			// we wake up any hibernating WebSockets and
-			// place them back in the `sessions` map.
-			await this.ctx.storage.setAlarm(Date.now() + deleteDelay);
 		});
+		this.ctx.storage.setAlarm(Date.now() + deleteDelay);
 	}
 
 	async fetch(request: Request): Promise<Response> {		
@@ -149,14 +182,17 @@ export class IHCGameServer extends DurableObject<Env> {
 		this.ctx.acceptWebSocket(server);
 
 		// Generate a random UUID for the session.
-		const id = crypto.randomUUID();
+		const websocketInfo: IHCWebSocketInfo = {
+			validated: false,
+			role: null
+		}
 
 		// Attach the session ID to the WebSocket connection and serialize it.
 		// This is necessary to restore the state of the connection when the Durable Object wakes up.
-		server.serializeAttachment({ id });
+		server.serializeAttachment(websocketInfo);
 
 		// Add the WebSocket connection to the map of active sessions.
-		this.sessions.set(server, { id });
+		this.sessions.set(server, websocketInfo);
 
 		return new Response(null, {
 			status: 101,
@@ -167,7 +203,11 @@ export class IHCGameServer extends DurableObject<Env> {
 
 	async webSocketMessage(ws: WebSocket, message: string) {
 		const incomingMessage: IHCMessageData = JSON.parse(message)
-		let updateSession = false
+		let broadcastResponse: IHCStateResponse | null = null
+		let sessionDataUpdate = false
+		//offset destruction every time a message comes along
+		this.ctx.storage.setAlarm(Date.now() + deleteDelay);
+
 		this.ctx.blockConcurrencyWhile(async () => {
 			if (incomingMessage.type === "intro") {
 				if (this.sessionData.validatedSessions >= 2) {
@@ -179,44 +219,121 @@ export class IHCGameServer extends DurableObject<Env> {
 				else if (incomingMessage.data.joinType === "new" && this.sessionData.validatedSessions > 0) {
 					ws.close(4003,'Session already exists, cannot create a new session with this ID')
 				}
+				else if (!this.sessions.has(ws)) {
+					ws.close(4004,'Unable to validate this session.')
+				}
 				else {
+					// check if we should assign a role
+					let newAssignedRole: IHCRole | null = null
+					this.sessions.forEach((_attachment, connectedWs) => {
+						if (this.sessions.get(connectedWs)?.validated) {
+							newAssignedRole = (this.sessions.get(connectedWs)!.role === "detective")? "suspect" : "detective"
+						}
+					});
+					//we just checked that sessions has the websocket as a key
+					const websocketInfo: IHCWebSocketInfo = this.sessions.get(ws)!
+					websocketInfo.validated = true
+					websocketInfo.role = newAssignedRole
+					ws.serializeAttachment(websocketInfo)
+
 					this.sessionData.validatedSessions += 1
-					updateSession = true
-				} 
+
+					const introResponse: IHCCombinedResponse = {
+						type: "combined-response",
+						state: this.sessionData,
+						role: newAssignedRole,
+						string: "success"
+					}
+					ws.send(JSON.stringify(introResponse))
+
+					const response: IHCStateResponse = {
+						type: "state-response",
+						state: this.sessionData,
+						role: newAssignedRole,
+						string: null
+					}
+					broadcastResponse = response
+					sessionDataUpdate = true
+				}
 			}
 			else if (incomingMessage.type === "query") {
-				ws.send(JSON.stringify({
-					"type": "session",
-					"data": this.sessionData
-				}))
+				const response: IHCCombinedResponse = {
+					type: "combined-response",
+					state: this.sessionData,
+					role: this.sessions.get(ws)?.role ?? null,
+					string: null
+				}
+				ws.send(JSON.stringify(response))
 			}
-			else if (incomingMessage.type === "update") {
-				this.sessionData = { ...this.sessionData, ...incomingMessage.data };
-				updateSession = true
+			else if (incomingMessage.type === "state-update") {
+				const updateStateData = incomingMessage.data
+				this.sessionData = { ...this.sessionData, ...updateStateData };
+				const response: IHCStateResponse = {
+					type: "state-response",
+					state: updateStateData,
+					role: null,
+					string: null
+				}
+				broadcastResponse = response
+				sessionDataUpdate = true
 			}
-			if (updateSession) {
+			else if (incomingMessage.type === "role-update") {
+				this.sessions.forEach((attachment, connectedWs) => {
+					if (attachment.validated) {
+						if (connectedWs === ws) {
+							attachment.role = incomingMessage.data.self
+						}
+						else {
+							attachment.role = incomingMessage.data.other
+						}
+						connectedWs.serializeAttachment(attachment)
+						const response: IHCRoleResponse = {
+							type: "role-response",
+							state: null,
+							role: attachment.role,
+							string: null
+						}
+						connectedWs.send(JSON.stringify(response));
+					}
+				});
+			}
+
+			if (broadcastResponse !== null) {
 				// Send a message to all WebSocket connections with the new sessionData.
 				this.sessions.forEach((_attachment, connectedWs) => {
-					connectedWs.send(JSON.stringify({
-						"type": "session",
-						"data": this.sessionData
-					}));
+					if (this.sessions.get(connectedWs)?.validated) {
+						connectedWs.send(JSON.stringify(broadcastResponse));
+					}
 				});
+			}
+
+			if (sessionDataUpdate) {
 				await this.ctx.storage.put("sessionData",this.sessionData)
 			}
 		})
 	}
 
 	async webSocketClose(ws: WebSocket, _code: number, _reason: string, _wasClean: boolean) {
-	// With web_socket_auto_reply_to_close (compat date >= 2026-04-07), the runtime
-	// auto-replies to Close frames. Calling close() is safe but no longer required.
-		this.sessions.delete(ws);
-		if (this.sessions.size == 0) {
-			await this.ctx.storage.deleteAll()
-		}
+		// With web_socket_auto_reply_to_close (compat date >= 2026-04-07), the runtime
+		// auto-replies to Close frames. Calling close() is safe but no longer required.
+		this.ctx.blockConcurrencyWhile(async () => {
+			this.sessions.delete(ws);
+			this.sessionData.validatedSessions -= 1
+			if (this.sessionData.validatedSessions == 0) {
+				await this.ctx.storage.deleteAll()
+			}
+			else {
+				await this.ctx.storage.put("sessionData",this.sessionData)
+			}
+		})
 	}
 	
 	async alarm() {
-		await this.ctx.storage.deleteAll()
+		this.ctx.blockConcurrencyWhile(async () => {
+			await this.ctx.storage.deleteAll()
+			this.sessions.forEach((_attachment, connectedWs) => {
+				connectedWs.close(4005,"websocket expired")
+			})
+		})
 	}
 }
