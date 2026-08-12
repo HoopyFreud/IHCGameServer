@@ -9,6 +9,7 @@ interface IHCStateData {
 	backgroundCardID: number | null;
 	permanentPenalty: boolean;
 	continuousCatalyzation: boolean;
+	digitalGame: boolean;
 	sealedFile: boolean;
 	endTime: Date | null
 }
@@ -151,6 +152,7 @@ export class IHCGameServer extends DurableObject<Env> {
 				backgroundCardID: null,
 				permanentPenalty: false,
 				continuousCatalyzation: false,
+				digitalGame: false,
 				sealedFile: false,
 				endTime: null
 			}
