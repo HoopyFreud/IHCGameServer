@@ -203,7 +203,7 @@ export class IHCGameServer extends DurableObject<Env> {
 
 	async webSocketMessage(ws: WebSocket, message: string) {
 		const incomingMessage: IHCMessageData = JSON.parse(message)
-		let broadcastResponse: IHCStateResponse | null = null
+		let broadcastOthersUpdate: IHCStateResponse | null = null
 		let sessionDataUpdate = false
 		//offset destruction every time a message comes along
 		this.ctx.storage.setAlarm(Date.now() + deleteDelay);
@@ -238,6 +238,10 @@ export class IHCGameServer extends DurableObject<Env> {
 
 					this.sessionData.validatedSessions += 1
 
+					if (this.sessionData.gameState === "await-player-join") {
+						this.sessionData.gameState = "penalty-calibration"
+					}
+
 					const introResponse: IHCCombinedResponse = {
 						type: "combined-response",
 						state: this.sessionData,
@@ -246,13 +250,18 @@ export class IHCGameServer extends DurableObject<Env> {
 					}
 					ws.send(JSON.stringify(introResponse))
 
-					const response: IHCStateResponse = {
+					const broadcastStateData: Partial<IHCStateData> = {
+						gameState: this.sessionData.gameState,
+						validatedSessions: this.sessionData.validatedSessions
+					}
+
+					const broadcastUpdate: IHCStateResponse = {
 						type: "state-response",
-						state: this.sessionData,
+						state: broadcastStateData,
 						role: newAssignedRole,
 						string: null
 					}
-					broadcastResponse = response
+					broadcastOthersUpdate = broadcastUpdate
 					sessionDataUpdate = true
 				}
 			}
@@ -268,13 +277,15 @@ export class IHCGameServer extends DurableObject<Env> {
 			else if (incomingMessage.type === "state-update") {
 				const updateStateData = incomingMessage.data
 				this.sessionData = { ...this.sessionData, ...updateStateData };
-				const response: IHCStateResponse = {
+				const broadcastUpdate: IHCStateResponse = {
 					type: "state-response",
 					state: updateStateData,
 					role: null,
 					string: null
 				}
-				broadcastResponse = response
+				ws.send(JSON.stringify(broadcastUpdate))
+
+				broadcastOthersUpdate = broadcastUpdate
 				sessionDataUpdate = true
 			}
 			else if (incomingMessage.type === "role-update") {
@@ -298,11 +309,11 @@ export class IHCGameServer extends DurableObject<Env> {
 				});
 			}
 
-			if (broadcastResponse !== null) {
+			if (broadcastOthersUpdate !== null) {
 				// Send a message to all WebSocket connections with the new sessionData.
 				this.sessions.forEach((_attachment, connectedWs) => {
-					if (this.sessions.get(connectedWs)?.validated) {
-						connectedWs.send(JSON.stringify(broadcastResponse));
+					if (connectedWs !== ws && this.sessions.get(connectedWs)?.validated) {
+						connectedWs.send(JSON.stringify(broadcastOthersUpdate));
 					}
 				});
 			}
