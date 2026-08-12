@@ -1,7 +1,12 @@
 import { DurableObject } from 'cloudflare:workers';
 
 interface IHCStateData {
-	gameState: string;
+	gameState: (
+		"init" | "game-setup" | 
+		"select-penalty-prelim" | "select-penalty-final" | "calibrate-penalty" |
+		"select-module" | "confirm-module" |
+		"select-background-fail" | "select-background-success" |
+		"interrogate" | "end-game");
 	validatedSessions: number;
 	moduleID: number | null;
 	robotCardID: number | null;
@@ -234,16 +239,7 @@ export class IHCGameServer extends DurableObject<Env> {
 					websocketInfo.role = newAssignedRole
 					ws.serializeAttachment(websocketInfo)
 
-					const broadcastStateData: Partial<IHCStateData> = {
-						validatedSessions: this.sessionData.validatedSessions
-					}
-
 					this.sessionData.validatedSessions += 1
-
-					if (this.sessionData.gameState === "await-player-join") {
-						this.sessionData.gameState = "penalty-calibration"
-						broadcastStateData.gameState = this.sessionData.gameState
-					}
 
 					const introResponse: IHCCombinedResponse = {
 						type: "combined-response",
@@ -255,8 +251,8 @@ export class IHCGameServer extends DurableObject<Env> {
 
 					const broadcastUpdate: IHCStateResponse = {
 						type: "state-response",
-						state: broadcastStateData,
-						role: newAssignedRole,
+						state: this.sessionData,
+						role: null,
 						string: null
 					}
 					broadcastOthersUpdate = broadcastUpdate
@@ -275,15 +271,20 @@ export class IHCGameServer extends DurableObject<Env> {
 			else if (incomingMessage.type === "state-update") {
 				const updateStateData = incomingMessage.data
 				this.sessionData = { ...this.sessionData, ...updateStateData };
-				const broadcastUpdate: IHCStateResponse = {
+				const response: IHCStateResponse = {
 					type: "state-response",
 					state: updateStateData,
 					role: null,
 					string: "confirm"
 				}
-				ws.send(JSON.stringify(broadcastUpdate))
+				ws.send(JSON.stringify(response))
 
-				broadcastUpdate.string = null
+				const broadcastUpdate: IHCStateResponse = {
+					type: "state-response",
+					state: updateStateData,
+					role: null,
+					string: null
+				}
 
 				broadcastOthersUpdate = broadcastUpdate
 				sessionDataUpdate = true
