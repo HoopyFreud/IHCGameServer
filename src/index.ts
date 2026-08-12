@@ -225,9 +225,14 @@ export class IHCGameServer extends DurableObject<Env> {
 				else {
 					// check if we should assign a role
 					let newAssignedRole: IHCRole | null = null
-					this.sessions.forEach((_attachment, connectedWs) => {
-						if (this.sessions.get(connectedWs)?.validated) {
-							newAssignedRole = (this.sessions.get(connectedWs)!.role === "detective")? "suspect" : "detective"
+					this.sessions.forEach((attachment, _connectedWs) => {
+						if (attachment.validated) {
+							if (attachment.role === "detective") {
+								newAssignedRole = "suspect"
+							}
+							else if (attachment.role === "suspect") {
+								newAssignedRole = "detective"
+							}
 						}
 					});
 					//we just checked that sessions has the websocket as a key
@@ -249,7 +254,7 @@ export class IHCGameServer extends DurableObject<Env> {
 					const response: IHCStateResponse = {
 						type: "state-response",
 						state: this.sessionData,
-						role: newAssignedRole,
+						role: null,
 						string: null
 					}
 					broadcastResponse = response
@@ -323,6 +328,17 @@ export class IHCGameServer extends DurableObject<Env> {
 				await this.ctx.storage.deleteAll()
 			}
 			else {
+				const broadcastUpdate: IHCStateResponse = {
+					type: "state-response",
+					state: this.sessionData,
+					role: null,
+					string: null
+				}
+				this.sessions.forEach((_attachment, connectedWs) => {
+					if (this.sessions.get(connectedWs)?.validated) {
+						connectedWs.send(JSON.stringify(broadcastUpdate));
+					}
+				});
 				await this.ctx.storage.put("sessionData",this.sessionData)
 			}
 		})
