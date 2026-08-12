@@ -5,7 +5,7 @@ interface IHCStateData {
 	validatedSessions: number;
 	moduleID: number | null;
 	robotCardID: number | null;
-	penaltyCardID: number | number[] | null;
+	penaltyCardID: number | [number, number] | null;
 	backgroundCardID: number | null;
 	permanentPenalty: boolean;
 	continuousCatalyzation: boolean;
