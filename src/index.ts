@@ -5,7 +5,7 @@ interface IHCStateData {
 	validatedSessions: number;
 	moduleID: number | null;
 	robotCardID: number | null;
-	penaltyCardID: number | null;
+	penaltyCardID: number | [number, number] | null;
 	backgroundCardID: number | null;
 	permanentPenalty: boolean;
 	continuousCatalyzation: boolean;
@@ -55,31 +55,24 @@ interface IHCStateResponse {
 	type: "state-response";
 	state: Partial<IHCStateData>
 	role: null
-	string: null
+	string: "confirm" | null
 }
 
 interface IHCRoleResponse {
 	type: "role-response";
 	state: null
 	role: IHCRole
-	string: null
-}
-
-interface IHCStringResponse {
-	type: "string-response";
-	state: null
-	role: null
-	string: null
+	string: "confirm" | null
 }
 
 interface IHCCombinedResponse {
 	type: "combined-response";
 	state: Partial<IHCStateData> | null
 	role: IHCRole | null
-	string: string | null
+	string: "confirm" | null
 }
 
-type IHCResponse = (IHCStateResponse | IHCRoleResponse | IHCStringResponse | IHCCombinedResponse)
+type IHCResponse = (IHCStateResponse | IHCRoleResponse | IHCCombinedResponse)
 
 const deleteDelay = 24 * 60 * 60 * 1000;
 
@@ -203,7 +196,7 @@ export class IHCGameServer extends DurableObject<Env> {
 
 	async webSocketMessage(ws: WebSocket, message: string) {
 		const incomingMessage: IHCMessageData = JSON.parse(message)
-		let broadcastResponse: IHCStateResponse | null = null
+		let broadcastOthersUpdate: IHCStateResponse | null = null
 		let sessionDataUpdate = false
 		//offset destruction every time a message comes along
 		this.ctx.storage.setAlarm(Date.now() + deleteDelay);
@@ -241,23 +234,32 @@ export class IHCGameServer extends DurableObject<Env> {
 					websocketInfo.role = newAssignedRole
 					ws.serializeAttachment(websocketInfo)
 
+					const broadcastStateData: Partial<IHCStateData> = {
+						validatedSessions: this.sessionData.validatedSessions
+					}
+
 					this.sessionData.validatedSessions += 1
+
+					if (this.sessionData.gameState === "await-player-join") {
+						this.sessionData.gameState = "penalty-calibration"
+						broadcastStateData.gameState = this.sessionData.gameState
+					}
 
 					const introResponse: IHCCombinedResponse = {
 						type: "combined-response",
 						state: this.sessionData,
 						role: newAssignedRole,
-						string: "success"
+						string: "confirm"
 					}
 					ws.send(JSON.stringify(introResponse))
 
-					const response: IHCStateResponse = {
+					const broadcastUpdate: IHCStateResponse = {
 						type: "state-response",
-						state: this.sessionData,
-						role: null,
+						state: broadcastStateData,
+						role: newAssignedRole,
 						string: null
 					}
-					broadcastResponse = response
+					broadcastOthersUpdate = broadcastUpdate
 					sessionDataUpdate = true
 				}
 			}
@@ -266,48 +268,54 @@ export class IHCGameServer extends DurableObject<Env> {
 					type: "combined-response",
 					state: this.sessionData,
 					role: this.sessions.get(ws)?.role ?? null,
-					string: null
+					string: "confirm"
 				}
 				ws.send(JSON.stringify(response))
 			}
 			else if (incomingMessage.type === "state-update") {
 				const updateStateData = incomingMessage.data
 				this.sessionData = { ...this.sessionData, ...updateStateData };
-				const response: IHCStateResponse = {
+				const broadcastUpdate: IHCStateResponse = {
 					type: "state-response",
 					state: updateStateData,
 					role: null,
-					string: null
+					string: "confirm"
 				}
-				broadcastResponse = response
+				ws.send(JSON.stringify(broadcastUpdate))
+
+				broadcastUpdate.string = null
+
+				broadcastOthersUpdate = broadcastUpdate
 				sessionDataUpdate = true
 			}
 			else if (incomingMessage.type === "role-update") {
 				this.sessions.forEach((attachment, connectedWs) => {
 					if (attachment.validated) {
+						const response: IHCRoleResponse = {
+							type: "role-response",
+							state: null,
+							role: incomingMessage.data.other,
+							string: null
+						}
 						if (connectedWs === ws) {
 							attachment.role = incomingMessage.data.self
+							response.role = attachment.role
+							response.string = "confirm"
 						}
 						else {
 							attachment.role = incomingMessage.data.other
 						}
 						connectedWs.serializeAttachment(attachment)
-						const response: IHCRoleResponse = {
-							type: "role-response",
-							state: null,
-							role: attachment.role,
-							string: null
-						}
 						connectedWs.send(JSON.stringify(response));
 					}
 				});
 			}
 
-			if (broadcastResponse !== null) {
+			if (broadcastOthersUpdate !== null) {
 				// Send a message to all WebSocket connections with the new sessionData.
 				this.sessions.forEach((_attachment, connectedWs) => {
-					if (this.sessions.get(connectedWs)?.validated) {
-						connectedWs.send(JSON.stringify(broadcastResponse));
+					if (connectedWs !== ws && this.sessions.get(connectedWs)?.validated) {
+						connectedWs.send(JSON.stringify(broadcastOthersUpdate));
 					}
 				});
 			}
