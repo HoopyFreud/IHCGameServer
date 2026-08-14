@@ -1,7 +1,12 @@
 import { DurableObject } from 'cloudflare:workers';
 
 interface IHCStateData {
-	gameState: string;
+	gameState: (
+		"init" | "game-setup" | 
+		"select-penalty-prelim" | "select-penalty-final" | "calibrate-penalty" |
+		"select-module" | "confirm-module" |
+		"select-background-fail" | "select-background-success" |
+		"interrogate" | "end-game");
 	validatedSessions: number;
 	moduleID: number | null;
 	robotCardID: number | null;
@@ -220,9 +225,14 @@ export class IHCGameServer extends DurableObject<Env> {
 				else {
 					// check if we should assign a role
 					let newAssignedRole: IHCRole | null = null
-					this.sessions.forEach((_attachment, connectedWs) => {
-						if (this.sessions.get(connectedWs)?.validated) {
-							newAssignedRole = (this.sessions.get(connectedWs)!.role === "detective")? "suspect" : "detective"
+					this.sessions.forEach((attachment, _connectedWs) => {
+						if (attachment.validated) {
+							if (attachment.role === "detective") {
+								newAssignedRole = "suspect"
+							}
+							else if (attachment.role === "suspect") {
+								newAssignedRole = "detective"
+							}
 						}
 					});
 					//we just checked that sessions has the websocket as a key
@@ -231,16 +241,7 @@ export class IHCGameServer extends DurableObject<Env> {
 					websocketInfo.role = newAssignedRole
 					ws.serializeAttachment(websocketInfo)
 
-					const broadcastStateData: Partial<IHCStateData> = {
-						validatedSessions: this.sessionData.validatedSessions
-					}
-
 					this.sessionData.validatedSessions += 1
-
-					if (this.sessionData.gameState === "await-player-join") {
-						this.sessionData.gameState = "penalty-calibration"
-						broadcastStateData.gameState = this.sessionData.gameState
-					}
 
 					const introResponse: IHCCombinedResponse = {
 						type: "combined-response",
@@ -252,8 +253,8 @@ export class IHCGameServer extends DurableObject<Env> {
 
 					const broadcastUpdate: IHCStateResponse = {
 						type: "state-response",
-						state: broadcastStateData,
-						role: newAssignedRole,
+						state: this.sessionData,
+						role: null,
 						string: null
 					}
 					broadcastOthersUpdate = broadcastUpdate
@@ -272,15 +273,20 @@ export class IHCGameServer extends DurableObject<Env> {
 			else if (incomingMessage.type === "state-update") {
 				const updateStateData = incomingMessage.data
 				this.sessionData = { ...this.sessionData, ...updateStateData };
-				const broadcastUpdate: IHCStateResponse = {
+				const response: IHCStateResponse = {
 					type: "state-response",
 					state: updateStateData,
 					role: null,
 					string: "confirm"
 				}
-				ws.send(JSON.stringify(broadcastUpdate))
+				ws.send(JSON.stringify(response))
 
-				broadcastUpdate.string = null
+				const broadcastUpdate: IHCStateResponse = {
+					type: "state-response",
+					state: updateStateData,
+					role: null,
+					string: null
+				}
 
 				broadcastOthersUpdate = broadcastUpdate
 				sessionDataUpdate = true
@@ -333,6 +339,17 @@ export class IHCGameServer extends DurableObject<Env> {
 				await this.ctx.storage.deleteAll()
 			}
 			else {
+				const broadcastUpdate: IHCStateResponse = {
+					type: "state-response",
+					state: this.sessionData,
+					role: null,
+					string: null
+				}
+				this.sessions.forEach((_attachment, connectedWs) => {
+					if (this.sessions.get(connectedWs)?.validated) {
+						connectedWs.send(JSON.stringify(broadcastUpdate));
+					}
+				});
 				await this.ctx.storage.put("sessionData",this.sessionData)
 			}
 		})
