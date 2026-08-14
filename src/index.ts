@@ -1,84 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 
-interface IHCStateData {
-	gameState: (
-		"init" | "game-setup" | 
-		"select-penalty-prelim" | "select-penalty-final" | "calibrate-penalty" |
-		"select-module" | "confirm-module" |
-		"select-background-fail" | "select-background-success" |
-		"interrogate" | "end-game");
-	validatedSessions: number;
-	moduleID: number | null;
-	robotCardID: number | null;
-	penaltyCardID: number | [number, number] | null;
-	backgroundCardID: number | null;
-	permanentPenalty: boolean;
-	continuousCatalyzation: boolean;
-	digitalGame: boolean;
-	sealedFile: boolean;
-	endTime: Date | null
-}
-
-type IHCRole = "detective" | "suspect"
-
-
-interface IHCWebSocketInfo {
-	validated: boolean;
-	role: IHCRole | null
-}
-
-interface IHCRoleData {
-	self: IHCRole;
-	other: IHCRole;
-}
-
-interface IHCIntroductionData {
-	type: "intro";
-	data: {
-		sessionID: string;
-		joinType: string;
-	}
-}
-
-interface IHCQuery {
-	type: "query";
-	data: null
-}
-
-interface IHCStateUpdate {
-	type: "state-update";
-	data: Partial<IHCStateData>
-}
-
-interface IHCRoleUpdate {
-	type: "role-update";
-	data: IHCRoleData
-}
-
-type IHCMessageData = (IHCIntroductionData | IHCQuery | IHCStateUpdate | IHCRoleUpdate)
-
-interface IHCStateResponse {
-	type: "state-response";
-	state: Partial<IHCStateData>
-	role: null
-	string: "confirm" | null
-}
-
-interface IHCRoleResponse {
-	type: "role-response";
-	state: null
-	role: IHCRole
-	string: "confirm" | null
-}
-
-interface IHCCombinedResponse {
-	type: "combined-response";
-	state: Partial<IHCStateData> | null
-	role: IHCRole | null
-	string: "confirm" | null
-}
-
-type IHCResponse = (IHCStateResponse | IHCRoleResponse | IHCCombinedResponse)
+import type { IHCCombinedResponse, IHCMessageData, IHCRole, IHCRoleResponse, IHCStateData, IHCStateResponse, IHCWebSocketInfo } from './typeInterfaces'
 
 const deleteDelay = 24 * 60 * 60 * 1000;
 
@@ -152,7 +74,6 @@ export class IHCGameServer extends DurableObject<Env> {
 				gameState: "init",
 				validatedSessions: 0,
 				moduleID: null,
-				robotCardID: null,
 				penaltyCardID: null,
 				backgroundCardID: null,
 				permanentPenalty: false,
