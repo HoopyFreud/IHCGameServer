@@ -255,7 +255,9 @@ export class IHCGameServer extends DurableObject<Env> {
 		// auto-replies to Close frames. Calling close() is safe but no longer required.
 		this.ctx.blockConcurrencyWhile(async () => {
 			this.sessions.delete(ws);
-			this.sessionData.validatedSessions -= 1
+			if (this.sessions.get(ws)?.validated) {
+				this.sessionData.validatedSessions -= 1
+			}
 			if (this.sessionData.validatedSessions == 0) {
 				await this.ctx.storage.deleteAll()
 			}
