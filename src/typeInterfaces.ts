@@ -4,7 +4,7 @@ export interface IHCStateData {
         "select-penalty-prelim" | "select-penalty-final" | "calibrate-penalty" |
         "select-module" | "confirm-module" |
         "select-background-fail" | "select-background-success" |
-        "interrogate" | "kill" |
+        "interrogate-prelim" | "interrogate" | "interrogate-pause" | "kill" |
         "end-game-win-together" | "end-game-lose-together" | "end-game-win-robot" | "end-game-win-detective" );
     validatedSessions: number;
     moduleID: number | null;
