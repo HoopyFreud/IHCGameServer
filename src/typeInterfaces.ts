@@ -6,6 +6,8 @@ export interface IHCStateData {
         "select-background-fail" | "select-background-success" |
         "interrogate-prelim" | "interrogate" | "interrogate-pause" | "kill" |
         "end-game-win-together" | "end-game-lose-together" | "end-game-win-robot" | "end-game-win-detective" );
+    interrogationState: (
+        "prelim" | "ongoing" | "pause" | "last-question" );
     validatedSessions: number;
     moduleID: number | null;
     penaltyCardID: number | [number, number] | null;

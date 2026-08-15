@@ -72,6 +72,7 @@ export class IHCGameServer extends DurableObject<Env> {
 			// place them back in the `sessions` map.
 			this.sessionData = (await ctx.storage.get("sessionData")) || {
 				gameState: "init",
+				interrogationState: "prelim",
 				validatedSessions: 0,
 				moduleID: null,
 				penaltyCardID: null,
