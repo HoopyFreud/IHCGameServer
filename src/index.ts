@@ -174,7 +174,7 @@ export class IHCGameServer extends DurableObject<Env> {
 
 					const broadcastUpdate: IHCStateResponse = {
 						type: "state-response",
-						state: this.sessionData,
+						state: {validatedSessions: this.sessionData.validatedSessions},
 						role: null,
 						string: null
 					}
@@ -254,10 +254,10 @@ export class IHCGameServer extends DurableObject<Env> {
 		// With web_socket_auto_reply_to_close (compat date >= 2026-04-07), the runtime
 		// auto-replies to Close frames. Calling close() is safe but no longer required.
 		this.ctx.blockConcurrencyWhile(async () => {
-			this.sessions.delete(ws);
 			if (this.sessions.get(ws)?.validated) {
 				this.sessionData.validatedSessions -= 1
 			}
+			this.sessions.delete(ws);
 			if (this.sessionData.validatedSessions == 0) {
 				await this.ctx.storage.deleteAll()
 			}
