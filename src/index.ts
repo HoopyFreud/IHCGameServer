@@ -168,7 +168,7 @@ export class IHCGameServer extends DurableObject<Env> {
 									role: attachment.role,
 									string: "confirm"
 								}
-								ws.send(JSON.stringify(response))
+								connectedWs.send(JSON.stringify(response))
 							}
 							else {
 								const response: IHCStateResponse = {
@@ -177,7 +177,7 @@ export class IHCGameServer extends DurableObject<Env> {
 									role: null,
 									string: null
 								}
-								ws.send(JSON.stringify(response))
+								connectedWs.send(JSON.stringify(response))
 							}
 						}
 					});
@@ -207,7 +207,7 @@ export class IHCGameServer extends DurableObject<Env> {
 						if (connectedWs === ws) {
 							response.string = "confirm"
 						}
-						ws.send(JSON.stringify(response))
+						connectedWs.send(JSON.stringify(response))
 					}
 				});
 			}
