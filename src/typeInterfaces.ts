@@ -3,7 +3,7 @@ export interface IHCStateData {
         "init" | "game-setup" | 
         "select-penalty-prelim" | "select-penalty-final" | "calibrate-penalty" |
         "select-module" | "confirm-module" |
-        "select-background-fail" | "select-background-success" |
+        "select-background-fail" | "select-background-success" | "select-background-sealed" |
         "interrogate" |
         "end-game-win-together" | "end-game-lose-together" | "end-game-win-robot" | "end-game-win-detective" );
     interrogationState: (
