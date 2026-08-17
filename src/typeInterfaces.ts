@@ -7,7 +7,7 @@ export interface IHCStateData {
         "interrogate" |
         "end-game-win-together" | "end-game-lose-together" | "end-game-win-robot" | "end-game-win-detective" );
     interrogationState: (
-        "prelim" | "ongoing" | "pause" | "last-question" );
+        "prelim" | "ongoing" | "pause" | "last-question" | "kill-attempt" );
     validatedSessions: number;
     moduleID: number | null;
     penaltyCardID: number | [number, number] | null;
