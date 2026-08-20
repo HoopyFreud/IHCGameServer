@@ -12,6 +12,8 @@ export interface IHCStateData {
     moduleID: number | null;
     penaltyCardID: number | [number, number] | null;
     backgroundCardID: number | null;
+    suspectProfileType: string | null;
+    suspectProfileID: number | null;
     permanentPenalty: boolean;
     continuousCatalyzation: boolean;
     digitalGame: boolean;
@@ -55,7 +57,12 @@ export interface IHCRoleUpdate {
     data: IHCRoleData
 }
 
-export type IHCMessageData = (IHCIntroductionData | IHCQuery | IHCStateUpdate | IHCRoleUpdate)
+export interface IHCResetSession {
+    type: "reset-session";
+    data: null
+}
+
+export type IHCMessageData = (IHCIntroductionData | IHCQuery | IHCStateUpdate | IHCRoleUpdate | IHCResetSession)
 
 export interface IHCStateResponse {
     type: "state-response";
