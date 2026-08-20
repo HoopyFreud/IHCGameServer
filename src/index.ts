@@ -212,7 +212,12 @@ export class IHCGameServer extends DurableObject<Env> {
 			}
 			else if (incomingMessage.type === "state-update") {
 				const {suspectProfileType: _0,suspectProfileID: _1,...updatePublicData} = incomingMessage.data
-				this.sessionData = { ...this.sessionData, ...incomingMessage.data };
+				if (this.sessions.get(ws)?.role === "suspect") {
+					this.sessionData = { ...this.sessionData, ...incomingMessage.data };
+				}
+				else {
+					this.sessionData = { ...this.sessionData, ...updatePublicData };
+				}
 				await this.ctx.storage.put("sessionData",this.sessionData)
 				// Send a message to all WebSocket connections with the new sessionData.
 				this.sessions.forEach((attachment, connectedWs) => {

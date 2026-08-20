@@ -12,7 +12,7 @@ export interface IHCStateData {
     moduleID: number | null;
     penaltyCardID: number | [number, number] | null;
     backgroundCardID: number | null;
-    suspectProfileType: string | null;
+    suspectProfileType: "human" | "patientRobot" | "violentRobot" | null;
     suspectProfileID: number | null;
     permanentPenalty: boolean;
     continuousCatalyzation: boolean;
