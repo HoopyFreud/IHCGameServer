@@ -265,6 +265,35 @@ export class IHCGameServer extends DurableObject<Env> {
 					}
 				});
 			}
+			else if (incomingMessage.type === "reset-session") {
+				this.sessionData = Object.assign({
+					gameState: "game-setup",
+					interrogationState: "prelim",
+					moduleID: null,
+					penaltyCardID: null,
+					backgroundCardID: null,
+					suspectProfileType: null,
+					suspectProfileID: null,
+					endTime: null
+				})
+				await this.ctx.storage.put("sessionData",this.sessionData)
+				this.sessions.forEach((attachment, connectedWs) => {
+					if (attachment.validated) {
+						attachment.role = null
+						const response: IHCCombinedResponse = {
+							type: "combined-response",
+							state: this.sessionData,
+							role: attachment.role,
+							string: null
+						}
+						if (connectedWs === ws) {
+							response.string = "confirm"
+						}
+						connectedWs.serializeAttachment(attachment)
+						connectedWs.send(JSON.stringify(response));
+					}
+				});
+			}	
 		})
 	}
 
