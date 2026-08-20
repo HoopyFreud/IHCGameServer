@@ -147,7 +147,7 @@ export class IHCGameServer extends DurableObject<Env> {
 				else {
 					//we just checked that sessions has the websocket as a key
 					const websocketInfo: IHCWebSocketInfo = this.sessions.get(ws)!
-					
+
 					websocketInfo.validated = true
 					// check if we should assign a role
 					const alreadyAssignedRole: IHCRole | null = this.sessions.values().find(
@@ -232,7 +232,9 @@ export class IHCGameServer extends DurableObject<Env> {
 						if (connectedWs === ws) {
 							response.string = "confirm"
 						}
-						connectedWs.send(JSON.stringify(response))
+						if (Object.keys(response.state).length !== 0) {
+							connectedWs.send(JSON.stringify(response))
+						}
 					}
 				});
 			}
